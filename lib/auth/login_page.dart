@@ -56,76 +56,80 @@ class _LoginPageState extends State<LoginPage> {
             child: Image.asset('assets/jazone_bg.png', fit: BoxFit.cover),
           ),
 
-          // 🔹 Login card at the bottom
-          Align(
-            alignment: Alignment.bottomCenter,
+          // 🔹 Centered Login Card (not bottom)
+          Center(
             child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Card(
-                color: Colors.white.withOpacity(0.9),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 400, // 👈 width limit
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 🔹 Username
-                      TextField(
-                        controller: nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Username',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // 🔹 Password
-                      TextField(
-                        controller: passwordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Password',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // 🔹 Login Button / Loader
-                      SizedBox(
-                        width: double.infinity, // full width
-                        height: 45,
-                        child: loading
-                            ? const Center(child: CircularProgressIndicator())
-                            : ElevatedButton(
-                                onPressed: login,
-                                style: ElevatedButton.styleFrom(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Login',
-                                  style: TextStyle(fontSize: 16),
-                                ),
-                              ),
-                      ),
-
-                      // 🔹 Error Message
-                      if (error.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Text(
-                            error,
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            textAlign: TextAlign.center,
+                child: Card(
+                  color: Colors.white.withOpacity(0.9),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // 🔹 Username
+                        TextField(
+                          controller: nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Username',
+                            border: OutlineInputBorder(),
                           ),
                         ),
-                    ],
+                        const SizedBox(height: 16),
+
+                        // 🔹 Password
+                        TextField(
+                          controller: passwordController,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Password',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // 🔹 Login Button / Loader
+                        SizedBox(
+                          width: double.infinity,
+                          height: 45,
+                          child: loading
+                              ? const Center(child: CircularProgressIndicator())
+                              : ElevatedButton(
+                                  onPressed: login,
+                                  style: ElevatedButton.styleFrom(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Login',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                ),
+                        ),
+
+                        // 🔹 Error Message
+                        if (error.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              error,
+                              style: const TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
