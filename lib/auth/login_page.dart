@@ -14,8 +14,9 @@ class _LoginPageState extends State<LoginPage> {
   final nameController = TextEditingController();
   final passwordController = TextEditingController();
 
-  String error = '';
   bool loading = false;
+  bool obscurePassword = true; // 👁 toggle
+  String error = '';
 
   Future<void> login() async {
     setState(() {
@@ -56,16 +57,17 @@ class _LoginPageState extends State<LoginPage> {
             child: Image.asset('assets/jazone_bg.png', fit: BoxFit.cover),
           ),
 
-          // 🔹 Centered Login Card (not bottom)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
+          // 🔹 Positioned Login Card
+          Positioned(
+            top: 330,
+            left: 24,
+            right: 24,
+            child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 400, // 👈 width limit
-                ),
+                constraints: const BoxConstraints(maxWidth: 400),
                 child: Card(
-                  color: Colors.white.withOpacity(0.9),
+                  elevation: 0,
+                  color: Colors.black.withOpacity(0.65), // 🔥 dark glass look
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -77,40 +79,80 @@ class _LoginPageState extends State<LoginPage> {
                         // 🔹 Username
                         TextField(
                           controller: nameController,
-                          decoration: const InputDecoration(
+                          style: const TextStyle(color: Colors.white),
+                          cursorColor: Colors.white,
+                          decoration: InputDecoration(
                             labelText: 'Username',
-                            border: OutlineInputBorder(),
+                            labelStyle: const TextStyle(color: Colors.white),
+                            enabledBorder: OutlineInputBorder(
+                              borderSide: BorderSide(color: Colors.white70),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(color: Colors.white),
+                            ),
                           ),
                         ),
+
                         const SizedBox(height: 16),
 
-                        // 🔹 Password
+                        // 🔹 Password with 👁 toggle
                         TextField(
                           controller: passwordController,
-                          obscureText: true,
-                          decoration: const InputDecoration(
+                          obscureText: obscurePassword,
+                          style: const TextStyle(color: Colors.white),
+                          cursorColor: Colors.white,
+                          decoration: InputDecoration(
                             labelText: 'Password',
-                            border: OutlineInputBorder(),
+                            labelStyle: const TextStyle(color: Colors.white),
+                            enabledBorder: OutlineInputBorder(
+                              borderSide: BorderSide(color: Colors.white70),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(color: Colors.white),
+                            ),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                obscurePassword
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                                color: Colors.white,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  obscurePassword = !obscurePassword;
+                                });
+                              },
+                            ),
                           ),
                         ),
+
                         const SizedBox(height: 24),
 
-                        // 🔹 Login Button / Loader
+                        // 🔹 Login Button
                         SizedBox(
                           width: double.infinity,
-                          height: 45,
+                          height: 50,
                           child: loading
-                              ? const Center(child: CircularProgressIndicator())
+                              ? const Center(
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                  ),
+                                )
                               : ElevatedButton(
                                   onPressed: login,
                                   style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                   ),
                                   child: const Text(
                                     'Login',
-                                    style: TextStyle(fontSize: 16),
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                         ),
@@ -122,7 +164,7 @@ class _LoginPageState extends State<LoginPage> {
                             child: Text(
                               error,
                               style: const TextStyle(
-                                color: Colors.red,
+                                color: Colors.redAccent,
                                 fontWeight: FontWeight.w500,
                               ),
                               textAlign: TextAlign.center,

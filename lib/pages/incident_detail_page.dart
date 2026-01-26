@@ -17,45 +17,87 @@ class IncidentDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Incident Details')),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('incidents')
-            .doc(docId)
-            .snapshots(),
-        builder: (_, snap) {
-          if (!snap.hasData)
-            return const Center(child: CircularProgressIndicator());
+      appBar: AppBar(
+        title: const Text('Incident Details'),
+        backgroundColor: const Color(0xFF1A3A52),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF1A3A52), Color(0xFF2D5F7B)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('incidents')
+              .doc(docId)
+              .snapshots(),
+          builder: (_, snap) {
+            if (!snap.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-          final d = snap.data!.data() as Map<String, dynamic>;
-          final p = d['progress'];
+            final d = snap.data!.data() as Map<String, dynamic>;
+            final p = d['progress'];
 
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(d['address'], style: const TextStyle(fontSize: 20)),
-                const SizedBox(height: 16),
-                CheckboxListTile(
-                  title: const Text('Accepted'),
-                  value: p['accepted'],
-                  onChanged: (v) => update('accepted', v!),
-                ),
-                CheckboxListTile(
-                  title: const Text('On Action'),
-                  value: p['onAction'],
-                  onChanged: (v) => update('onAction', v!),
-                ),
-                CheckboxListTile(
-                  title: const Text('Solved'),
-                  value: p['solved'],
-                  onChanged: (v) => update('solved', v!),
-                ),
-              ],
-            ),
-          );
-        },
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Image
+                  if (d['imageUrl'] != null && d['imageUrl'] != '')
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        d['imageUrl'],
+                        height: 220,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+
+                  const SizedBox(height: 20),
+
+                  Text(
+                    d['address'],
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  Text(
+                    d['description'] ?? '',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Progress
+                  _checkTile('Accepted', p['accepted'], 'accepted'),
+                  _checkTile('On Action', p['onAction'], 'onAction'),
+                  _checkTile('Solved', p['solved'], 'solved'),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _checkTile(String title, bool value, String field) {
+    return Card(
+      child: CheckboxListTile(
+        title: Text(title),
+        value: value,
+        onChanged: (v) => update(field, v!),
       ),
     );
   }
