@@ -22,21 +22,20 @@ class Sidebar extends StatelessWidget {
         children: [
           const SizedBox(height: 20),
 
-          // Logo
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Column(
               children: [
                 Container(
-                  width: 50,
-                  height: 50,
+                  width: 54,
+                  height: 54,
                   decoration: BoxDecoration(
                     color: const Color(0xFF4DB8FF),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Center(
                     child: Text(
-                      'IR',
+                      'JZ',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -45,23 +44,23 @@ class Sidebar extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 const Text(
-                  'Incident\nReports',
+                  'JAzone\nMonitoring',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Color(0xFF4DB8FF),
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
                   ),
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
 
-          // Navigation items
           NavItem(
             label: 'Dashboard',
             icon: Icons.dashboard,
@@ -71,7 +70,7 @@ class Sidebar extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           NavItem(
-            label: 'Requests',
+            label: 'Incidents',
             icon: Icons.list_alt,
             itemIndex: 1,
             selectedIndex: index,
@@ -79,16 +78,33 @@ class Sidebar extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           NavItem(
-            label: 'Reports',
+            label: 'Reports (PDF)',
             icon: Icons.picture_as_pdf,
             itemIndex: 2,
+            selectedIndex: index,
+            onTap: onSelect,
+          ),
+          const SizedBox(height: 12),
+
+          // ✅ requested tabs
+          NavItem(
+            label: 'Citizen Management',
+            icon: Icons.people,
+            itemIndex: 3,
+            selectedIndex: index,
+            onTap: onSelect,
+          ),
+          const SizedBox(height: 12),
+          NavItem(
+            label: 'Responder Management',
+            icon: Icons.health_and_safety,
+            itemIndex: 4,
             selectedIndex: index,
             onTap: onSelect,
           ),
 
           const Spacer(),
 
-          // Logout
           Padding(
             padding: const EdgeInsets.all(12),
             child: NavItem(
@@ -144,28 +160,25 @@ class _NavItemState extends State<NavItem> {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Container(
           width: 250,
-          height: 60,
+          height: 56,
           decoration: BoxDecoration(
             gradient: showGradient
                 ? const LinearGradient(
-                    colors: [
-                      Color(0xFF4DB8FF), // blue
-                      Color(0xFFFF8C42), // orange
-                    ],
+                    colors: [Color(0xFF4DB8FF), Color(0xFFFF8C42)],
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                   )
                 : null,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               onTap: () => widget.onTap(widget.itemIndex),
               child: Row(
                 children: [
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   Icon(
                     widget.icon,
                     color: showGradient ? Colors.white : Colors.grey,
@@ -176,8 +189,8 @@ class _NavItemState extends State<NavItem> {
                     widget.label,
                     style: TextStyle(
                       color: showGradient ? Colors.white : Colors.grey,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],

@@ -18,6 +18,9 @@ dependencies:
   printing: ^5.14.2
   geolocator: ^14.0.2
   google_maps_flutter: ^2.14.2
+  firebase_functions: ^0.0.1-dev
+  latlong2: ^0.9.1
+  flutter_map: ^8.2.2
 
 dev_dependencies:
   flutter_test:

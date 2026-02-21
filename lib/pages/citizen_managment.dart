@@ -21,8 +21,8 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
   @override
   Widget build(BuildContext context) {
     return _pageShell(
-      title: 'Citizens Management',
-      subtitle: 'Manage all registered citizens',
+      title: 'Citizen Management',
+      subtitle: 'View, monitor, and manage all citizen accounts',
       child: Column(
         children: [
           _topControls(),
@@ -39,12 +39,11 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
                 }
 
                 final q = _search.text.trim().toLowerCase();
-                final docs = snap.data!.docs.where((doc) {
+                final rows = snap.data!.docs.where((doc) {
                   final d = doc.data();
                   final name = (d['name'] ?? '').toString().toLowerCase();
                   final email = (d['email'] ?? '').toString().toLowerCase();
                   final phone = (d['phone'] ?? '').toString().toLowerCase();
-
                   final isOnline = d['isOnline'] == true;
 
                   final matchesSearch =
@@ -61,7 +60,16 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
                   return matchesSearch && matchesStatus;
                 }).toList();
 
-                return _table(context: context, rows: docs, isResponder: false);
+                if (rows.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No citizens found.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
+                }
+
+                return _table(context: context, rows: rows);
               },
             ),
           ),
@@ -81,7 +89,7 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
           ),
         ),
         const SizedBox(width: 14),
-        _statusDropdown(
+        _dropdown(
           value: _statusFilter,
           items: const ['All', 'Online', 'Offline'],
           onChanged: (v) => setState(() => _statusFilter = v),
@@ -93,7 +101,6 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
   Widget _table({
     required BuildContext context,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> rows,
-    required bool isResponder,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -101,6 +108,13 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
         color: Colors.white.withOpacity(0.10),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white.withOpacity(0.14)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -108,10 +122,14 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
           headingRowColor: WidgetStatePropertyAll(
             Colors.white.withOpacity(0.10),
           ),
-          dataRowMinHeight: 56,
+
+          // ✅ GUARANTEED FIX: no forced row height
+          columnSpacing: 22,
+          horizontalMargin: 12,
+
           columns: const [
             DataColumn(
-              label: Text('User ID', style: TextStyle(color: Colors.white)),
+              label: Text('Citizen ID', style: TextStyle(color: Colors.white)),
             ),
             DataColumn(
               label: Text('Name', style: TextStyle(color: Colors.white)),
@@ -135,7 +153,7 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
             final name = (d['name'] ?? '—').toString();
             final email = (d['email'] ?? '—').toString();
             final phone = (d['phone'] ?? '—').toString();
-            final online = d['isOnline'] == true;
+            final isOnline = d['isOnline'] == true;
 
             return DataRow(
               cells: [
@@ -149,12 +167,18 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
                 DataCell(
                   Text(phone, style: const TextStyle(color: Colors.white70)),
                 ),
-                DataCell(_statusPill(online ? 'Online' : 'Offline')),
+                DataCell(
+                  _pill(isOnline ? 'Online' : 'Offline', positive: isOnline),
+                ),
                 DataCell(
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      // ✅ IMPORTANT: prevent IconButton forcing 48x48 constraint
                       IconButton(
                         tooltip: 'Update',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
                         icon: const Icon(
                           Icons.edit,
                           color: Colors.lightBlueAccent,
@@ -163,11 +187,13 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
                           context: context,
                           userId: id,
                           data: d,
-                          isResponder: false,
                         ),
                       ),
+                      const SizedBox(width: 12),
                       IconButton(
                         tooltip: 'Delete',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
                         icon: const Icon(Icons.delete, color: Colors.redAccent),
                         onPressed: () => _confirmDelete(context, id),
                       ),
@@ -188,8 +214,8 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
       builder: (_) => AlertDialog(
         title: const Text('Delete Citizen'),
         content: const Text(
-          'This deletes the user profile document in Firestore.\n\n'
-          'Note: This does NOT delete the FirebaseAuth account (needs Admin SDK / Cloud Function).',
+          'This deletes the citizen profile document in Firestore.\n\n'
+          'Note: It will NOT delete the FirebaseAuth account (needs Admin SDK / Cloud Function).',
         ),
         actions: [
           TextButton(
@@ -219,7 +245,6 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
     required BuildContext context,
     required String userId,
     required Map<String, dynamic> data,
-    required bool isResponder,
   }) async {
     final nameC = TextEditingController(text: (data['name'] ?? '').toString());
     final emailC = TextEditingController(
@@ -232,45 +257,77 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
 
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Update Citizen'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameC,
-                decoration: const InputDecoration(labelText: 'Name'),
-              ),
-              TextField(
-                controller: emailC,
-                decoration: const InputDecoration(labelText: 'Email'),
-              ),
-              TextField(
-                controller: phoneC,
-                decoration: const InputDecoration(labelText: 'Phone'),
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile(
-                title: const Text('Online Status'),
-                value: isOnline,
-                onChanged: (v) => isOnline = v,
-              ),
-            ],
+      builder: (dialogCtx) {
+        return AlertDialog(
+          title: const Text('Update Citizen'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: StatefulBuilder(
+              builder: (context, setLocalState) {
+                return SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameC,
+                        decoration: const InputDecoration(labelText: 'Name'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: emailC,
+                        decoration: const InputDecoration(labelText: 'Email'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: phoneC,
+                        decoration: const InputDecoration(labelText: 'Phone'),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // ✅ Safe switch row
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.04),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Online Status',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            Switch(
+                              value: isOnline,
+                              onChanged: (v) =>
+                                  setLocalState(() => isOnline = v),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
     );
 
     if (saved != true) return;
@@ -289,7 +346,7 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
     ).showSnackBar(const SnackBar(content: Text('Citizen updated.')));
   }
 
-  // UI helpers
+  // ---------- UI helpers ----------
   Widget _pageShell({
     required String title,
     required String subtitle,
@@ -298,7 +355,7 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [Color(0xFF1A3A52), Color(0xFF2D5F7B)],
+          colors: [Color(0xFF0F2435), Color(0xFF163A52), Color(0xFF2D5F7B)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -312,7 +369,7 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
             style: const TextStyle(
               color: Colors.white,
               fontSize: 28,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 6),
@@ -347,7 +404,7 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
     );
   }
 
-  Widget _statusDropdown({
+  Widget _dropdown({
     required String value,
     required List<String> items,
     required Function(String) onChanged,
@@ -357,13 +414,17 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
       ),
       child: DropdownButton<String>(
         value: value,
         underline: const SizedBox(),
         dropdownColor: const Color(0xFF2D5F7B),
         iconEnabledColor: Colors.white,
-        style: const TextStyle(color: Colors.white),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
         items: items
             .map((s) => DropdownMenuItem(value: s, child: Text(s)))
             .toList(),
@@ -372,18 +433,23 @@ class _CitizensManagementPageState extends State<CitizensManagementPage> {
     );
   }
 
-  Widget _statusPill(String text) {
-    final isOnline = text.toLowerCase() == 'online';
+  Widget _pill(String text, {required bool positive}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: isOnline
+        color: positive
             ? Colors.greenAccent.withOpacity(0.25)
             : Colors.white.withOpacity(0.12),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white.withOpacity(0.12)),
       ),
-      child: Text(text, style: const TextStyle(color: Colors.white)),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }

@@ -22,8 +22,8 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
   @override
   Widget build(BuildContext context) {
     return _pageShell(
-      title: 'Responders Management',
-      subtitle: 'Manage all registered responders',
+      title: 'Responder Management',
+      subtitle: 'View, monitor, and manage all responder accounts',
       child: Column(
         children: [
           _topControls(),
@@ -40,8 +40,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
                 }
 
                 final q = _search.text.trim().toLowerCase();
-
-                final docs = snap.data!.docs.where((doc) {
+                final rows = snap.data!.docs.where((doc) {
                   final d = doc.data();
                   final name = (d['name'] ?? '').toString().toLowerCase();
                   final email = (d['email'] ?? '').toString().toLowerCase();
@@ -51,7 +50,6 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
                       (d['availabilityStatus'] ?? 'unavailable')
                           .toString()
                           .toLowerCase();
-                  final locationEnabled = d['locationEnabled'] == true;
 
                   final matchesSearch =
                       q.isEmpty ||
@@ -63,13 +61,19 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
                       _statusFilter == 'All' ||
                       availability == _statusFilter.toLowerCase();
 
-                  // Optional: if you want only responders with location enabled, uncomment:
-                  // if (!locationEnabled) return false;
-
                   return matchesSearch && matchesStatus;
                 }).toList();
 
-                return _table(context: context, rows: docs);
+                if (rows.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No responders found.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
+                }
+
+                return _table(context: context, rows: rows);
               },
             ),
           ),
@@ -89,7 +93,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
           ),
         ),
         const SizedBox(width: 14),
-        _statusDropdown(
+        _dropdown(
           value: _statusFilter,
           items: const ['All', 'available', 'unavailable', 'on_dispatch'],
           onChanged: (v) => setState(() => _statusFilter = v),
@@ -108,6 +112,13 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
         color: Colors.white.withOpacity(0.10),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white.withOpacity(0.14)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -115,7 +126,12 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
           headingRowColor: WidgetStatePropertyAll(
             Colors.white.withOpacity(0.10),
           ),
-          dataRowMinHeight: 56,
+
+          // ✅ GUARANTEED FIX: DO NOT force row heights on web DataTable
+          // (prevents 56<=h<=48 NOT NORMALIZED)
+          columnSpacing: 22,
+          horizontalMargin: 12,
+
           columns: const [
             DataColumn(
               label: Text(
@@ -167,22 +183,26 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
                   Text(phone, style: const TextStyle(color: Colors.white70)),
                 ),
                 DataCell(
-                  _statusPill(
+                  _pill(
                     locationEnabled ? 'ON' : 'OFF',
                     positive: locationEnabled,
                   ),
                 ),
                 DataCell(
-                  _statusPill(
+                  _pill(
                     availability,
                     positive: availability.toLowerCase() == 'available',
                   ),
                 ),
                 DataCell(
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      // ✅ IMPORTANT: prevent IconButton forcing 48x48 constraints in tight rows
                       IconButton(
                         tooltip: 'Update',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
                         icon: const Icon(
                           Icons.edit,
                           color: Colors.lightBlueAccent,
@@ -193,8 +213,11 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
                           data: d,
                         ),
                       ),
+                      const SizedBox(width: 12),
                       IconButton(
                         tooltip: 'Delete',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
                         icon: const Icon(Icons.delete, color: Colors.redAccent),
                         onPressed: () => _confirmDelete(context, id),
                       ),
@@ -216,7 +239,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
         title: const Text('Delete Responder'),
         content: const Text(
           'This deletes the responder profile document in Firestore.\n\n'
-          'Note: This does NOT delete the FirebaseAuth account (needs Admin SDK / Cloud Function).',
+          'Note: It will NOT delete the FirebaseAuth account (needs Admin SDK / Cloud Function).',
         ),
         actions: [
           TextButton(
@@ -261,67 +284,104 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
 
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Update Responder'),
-        content: SizedBox(
-          width: 440,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameC,
-                decoration: const InputDecoration(labelText: 'Name'),
-              ),
-              TextField(
-                controller: emailC,
-                decoration: const InputDecoration(labelText: 'Email'),
-              ),
-              TextField(
-                controller: phoneC,
-                decoration: const InputDecoration(labelText: 'Phone'),
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile(
-                title: const Text('Location Enabled'),
-                value: locationEnabled,
-                onChanged: (v) => locationEnabled = v,
-              ),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(
-                value: availability,
-                decoration: const InputDecoration(
-                  labelText: 'Availability Status',
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'available',
-                    child: Text('available'),
+      builder: (dialogCtx) {
+        return AlertDialog(
+          title: const Text('Update Responder'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: StatefulBuilder(
+              builder: (context, setLocalState) {
+                return SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameC,
+                        decoration: const InputDecoration(labelText: 'Name'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: emailC,
+                        decoration: const InputDecoration(labelText: 'Email'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: phoneC,
+                        decoration: const InputDecoration(labelText: 'Phone'),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // ✅ SAFE: custom switch row (no SwitchListTile height constraints)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.04),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Location Enabled',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            Switch(
+                              value: locationEnabled,
+                              onChanged: (v) =>
+                                  setLocalState(() => locationEnabled = v),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      DropdownButtonFormField<String>(
+                        value: availability,
+                        decoration: const InputDecoration(
+                          labelText: 'Availability Status',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'available',
+                            child: Text('available'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'unavailable',
+                            child: Text('unavailable'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'on_dispatch',
+                            child: Text('on_dispatch'),
+                          ),
+                        ],
+                        onChanged: (v) => setLocalState(
+                          () => availability = v ?? 'unavailable',
+                        ),
+                      ),
+                    ],
                   ),
-                  DropdownMenuItem(
-                    value: 'unavailable',
-                    child: Text('unavailable'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'on_dispatch',
-                    child: Text('on_dispatch'),
-                  ),
-                ],
-                onChanged: (v) => availability = v ?? 'unavailable',
-              ),
-            ],
+                );
+              },
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
     );
 
     if (saved != true) return;
@@ -341,7 +401,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
     ).showSnackBar(const SnackBar(content: Text('Responder updated.')));
   }
 
-  // UI helpers
+  // ---------- UI helpers ----------
   Widget _pageShell({
     required String title,
     required String subtitle,
@@ -350,7 +410,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [Color(0xFF1A3A52), Color(0xFF2D5F7B)],
+          colors: [Color(0xFF0F2435), Color(0xFF163A52), Color(0xFF2D5F7B)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -364,7 +424,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
             style: const TextStyle(
               color: Colors.white,
               fontSize: 28,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 6),
@@ -399,7 +459,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
     );
   }
 
-  Widget _statusDropdown({
+  Widget _dropdown({
     required String value,
     required List<String> items,
     required Function(String) onChanged,
@@ -409,13 +469,17 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
       ),
       child: DropdownButton<String>(
         value: value,
         underline: const SizedBox(),
         dropdownColor: const Color(0xFF2D5F7B),
         iconEnabledColor: Colors.white,
-        style: const TextStyle(color: Colors.white),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
         items: items
             .map((s) => DropdownMenuItem(value: s, child: Text(s)))
             .toList(),
@@ -424,7 +488,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
     );
   }
 
-  Widget _statusPill(String text, {required bool positive}) {
+  Widget _pill(String text, {required bool positive}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -434,7 +498,13 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white.withOpacity(0.12)),
       ),
-      child: Text(text, style: const TextStyle(color: Colors.white)),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }
