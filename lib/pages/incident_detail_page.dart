@@ -51,9 +51,101 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
     if (res == null) return;
 
     await _service.denyIncident(widget.docId, comment: res);
+    if (!mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Incident denied')));
+  }
+
+  Future<void> _markAsSolved(
+    BuildContext context, {
+    String? defaultSolvedBy,
+  }) async {
+    final controller = TextEditingController();
+    final solvedByController = TextEditingController(
+      text: (defaultSolvedBy ?? '').trim().isEmpty ? '' : defaultSolvedBy!,
+    );
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Mark as Solved'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Resolution details',
+                hintText: 'Describe what was done / fixed...',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: solvedByController,
+              decoration: const InputDecoration(
+                labelText: 'Solved by',
+                hintText: 'Responder name / team',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (ok != true) return;
+
+    final resolution = controller.text.trim();
+    if (resolution.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a resolution.')),
+      );
+      return;
+    }
+
+    final solvedBy = solvedByController.text.trim();
+
+    // Store resolution + solved by, and set status to problem_solved.
+    // We use the service if it exists, otherwise we do direct writes safely.
+    try {
+      // If you already have a method in your service for this, feel free to use it.
+      // Example: await _service.markSolved(widget.docId, resolutionText: resolution, solvedBy: solvedBy);
+
+      final doc = FirebaseFirestore.instance
+          .collection('incidents')
+          .doc(widget.docId);
+
+      await doc.set({
+        'resolutionText': resolution,
+        'solvedBy': solvedBy,
+        'solvedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await _service.setStatusCode(widget.docId, 'problem_solved');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to mark as solved: $e')));
+      return;
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Incident marked as solved')));
   }
 
   @override
@@ -84,10 +176,6 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
             final d = snap.data!.data() ?? <String, dynamic>{};
 
-            final progress = (d['progress'] is Map)
-                ? Map<String, dynamic>.from(d['progress'] as Map)
-                : <String, dynamic>{};
-
             final status = (d['status'] ?? 'Reported').toString();
             final statusCode = (d['statusCode'] ?? '').toString();
 
@@ -109,6 +197,10 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                 ? statusCode
                 : 'pending_admin';
 
+            final bool isSolved =
+                (_selectedStatusCode == 'problem_solved') ||
+                (statusCode == 'problem_solved');
+
             return SingleChildScrollView(
               padding: const EdgeInsets.all(18),
               child: Column(
@@ -125,7 +217,6 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                         fit: BoxFit.cover,
                       ),
                     ),
-
                   const SizedBox(height: 16),
 
                   _glassCard(
@@ -216,10 +307,10 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                           child: IncidentLiveMap(
                             incidentId: widget.docId,
                             showSimpleRouteLine: true,
-                            alwaysShowResponder:
-                                true, // Admin can always see responder marker if available
+                            alwaysShowResponder: true,
                           ),
                         ),
+
                         Row(
                           children: [
                             Expanded(
@@ -228,15 +319,21 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                   backgroundColor: Colors.greenAccent.shade400,
                                   foregroundColor: Colors.black,
                                 ),
-                                onPressed: () async {
-                                  await _service.acceptIncident(widget.docId);
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Incident accepted'),
-                                    ),
-                                  );
-                                },
+                                onPressed: isSolved
+                                    ? null
+                                    : () async {
+                                        await _service.acceptIncident(
+                                          widget.docId,
+                                        );
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Incident accepted'),
+                                          ),
+                                        );
+                                      },
                                 icon: const Icon(Icons.check_circle),
                                 label: const Text('Accept'),
                               ),
@@ -248,12 +345,33 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                   backgroundColor: Colors.redAccent.shade200,
                                   foregroundColor: Colors.black,
                                 ),
-                                onPressed: () => _denyWithComment(context),
+                                onPressed: isSolved
+                                    ? null
+                                    : () => _denyWithComment(context),
                                 icon: const Icon(Icons.cancel),
                                 label: const Text('Deny'),
                               ),
                             ),
                           ],
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // NEW: Mark as Solved (with resolution input)
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.lightGreenAccent.shade100,
+                              foregroundColor: Colors.black,
+                            ),
+                            onPressed: () => _markAsSolved(
+                              context,
+                              defaultSolvedBy: assignedResponderName,
+                            ),
+                            icon: const Icon(Icons.verified),
+                            label: const Text('Mark as Solved'),
+                          ),
                         ),
 
                         const SizedBox(height: 14),
@@ -408,7 +526,9 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton.icon(
-                                    onPressed: (_selectedResponderId == null)
+                                    onPressed:
+                                        (_selectedResponderId == null ||
+                                            isSolved)
                                         ? null
                                         : () async {
                                             await _service.assignResponder(
@@ -421,13 +541,20 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                               responderPhone:
                                                   _selectedResponderPhone ?? '',
                                             );
+
+                                            // ✅ NEW: Auto-update status when responder is assigned
+                                            await _service.setStatusCode(
+                                              widget.docId,
+                                              'responder_dispatched',
+                                            );
+
                                             if (!mounted) return;
                                             ScaffoldMessenger.of(
                                               context,
                                             ).showSnackBar(
                                               const SnackBar(
                                                 content: Text(
-                                                  'Responder assigned',
+                                                  'Responder assigned (status updated)',
                                                 ),
                                               ),
                                             );
@@ -439,41 +566,6 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                               ],
                             );
                           },
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // Keep your old progress checkboxes (backward compatible)
-                  _glassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Quick Progress (Legacy)',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        _checkTile(
-                          title: 'Accepted',
-                          value: progress['accepted'] == true,
-                          field: 'accepted',
-                        ),
-                        _checkTile(
-                          title: 'On Action',
-                          value: progress['onAction'] == true,
-                          field: 'onAction',
-                        ),
-                        _checkTile(
-                          title: 'Solved',
-                          value: progress['solved'] == true,
-                          field: 'solved',
                         ),
                       ],
                     ),
@@ -611,39 +703,6 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
       style: const TextStyle(
         color: Colors.white70,
         fontWeight: FontWeight.w600,
-      ),
-    );
-  }
-
-  Widget _checkTile({
-    required String title,
-    required bool value,
-    required String field,
-  }) {
-    return Card(
-      color: Colors.white,
-      child: CheckboxListTile(
-        title: Text(title),
-        value: value,
-        onChanged: (v) async {
-          if (v == null) return;
-
-          final doc = FirebaseFirestore.instance
-              .collection('incidents')
-              .doc(widget.docId);
-          await doc.set({'progress.$field': v}, SetOptions(merge: true));
-
-          // Keep old status behavior (compat)
-          if (field == 'accepted' && v == true) {
-            await _service.acceptIncident(widget.docId);
-          }
-          if (field == 'onAction' && v == true) {
-            await _service.setStatusCode(widget.docId, 'under_surveillance');
-          }
-          if (field == 'solved' && v == true) {
-            await _service.setStatusCode(widget.docId, 'problem_solved');
-          }
-        },
       ),
     );
   }

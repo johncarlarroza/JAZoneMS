@@ -82,6 +82,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
     );
   }
 
+  // ✅ UPDATED: added "Add Responder" button
   Widget _topControls() {
     return Row(
       children: [
@@ -97,6 +98,22 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
           value: _statusFilter,
           items: const ['All', 'available', 'unavailable', 'on_dispatch'],
           onChanged: (v) => setState(() => _statusFilter = v),
+        ),
+        const SizedBox(width: 14),
+        SizedBox(
+          height: 46,
+          child: ElevatedButton.icon(
+            onPressed: () => _openCreateResponderDialog(context),
+            icon: const Icon(Icons.person_add),
+            label: const Text('Add Responder'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6B35),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -127,8 +144,7 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
             Colors.white.withOpacity(0.10),
           ),
 
-          // ✅ GUARANTEED FIX: DO NOT force row heights on web DataTable
-          // (prevents 56<=h<=48 NOT NORMALIZED)
+          // ✅ avoid web DataTable constraint issues
           columnSpacing: 22,
           horizontalMargin: 12,
 
@@ -198,7 +214,6 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // ✅ IMPORTANT: prevent IconButton forcing 48x48 constraints in tight rows
                       IconButton(
                         tooltip: 'Update',
                         padding: EdgeInsets.zero,
@@ -231,6 +246,125 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
       ),
     );
   }
+
+  // ===================== ✅ NEW: Create Responder =====================
+
+  Future<void> _openCreateResponderDialog(BuildContext context) async {
+    final nameC = TextEditingController();
+    final phoneC = TextEditingController();
+    final emailC = TextEditingController();
+
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          title: const Text('Create Responder Account'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameC,
+                    decoration: const InputDecoration(
+                      labelText: 'Responder Name',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: phoneC,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone Number',
+                    ),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: emailC,
+                    decoration: const InputDecoration(labelText: 'Email'),
+                    keyboardType: TextInputType.emailAddress,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Note: This creates a Firestore profile only.\n'
+                    'It does NOT create FirebaseAuth login credentials.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = nameC.text.trim();
+                final phone = phoneC.text.trim();
+                final email = emailC.text.trim();
+
+                if (name.isEmpty || phone.isEmpty || email.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please fill in Name, Phone, and Email.'),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogCtx, true);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (created != true) return;
+
+    final name = nameC.text.trim();
+    final phone = phoneC.text.trim();
+    final email = emailC.text.trim();
+
+    // Optional: prevent duplicates by phone or email
+    final existing = await FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'responder')
+        .where('phone', isEqualTo: phone)
+        .limit(1)
+        .get();
+
+    if (existing.docs.isNotEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A responder with this phone already exists.'),
+        ),
+      );
+      return;
+    }
+
+    await FirebaseFirestore.instance.collection('users').add({
+      'role': 'responder',
+      'name': name,
+      'phone': phone,
+      'email': email,
+      'locationEnabled': false,
+      'availabilityStatus': 'unavailable',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Responder profile created.')));
+  }
+
+  // ===================== Existing CRUD =====================
 
   Future<void> _confirmDelete(BuildContext context, String userId) async {
     final ok = await showDialog<bool>(
@@ -311,7 +445,6 @@ class _RespondersManagementPageState extends State<RespondersManagementPage> {
                       ),
                       const SizedBox(height: 14),
 
-                      // ✅ SAFE: custom switch row (no SwitchListTile height constraints)
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
