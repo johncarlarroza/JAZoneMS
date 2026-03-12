@@ -1,12 +1,70 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:jazone_monitoring_dashboard/widgets/icident_live_map.dart';
 
-import '../services/responder_service.dart';
-
-class ResponderDispatchPage extends StatelessWidget {
+class ResponderDispatchPage extends StatefulWidget {
   final String incidentId;
   const ResponderDispatchPage({super.key, required this.incidentId});
+
+  @override
+  State<ResponderDispatchPage> createState() => _ResponderDispatchPageState();
+}
+
+class _ResponderDispatchPageState extends State<ResponderDispatchPage> {
+  StreamSubscription<Position>? _positionSub;
+  bool _trackingStarted = false;
+
+  DocumentReference<Map<String, dynamic>> get _ref =>
+      FirebaseFirestore.instance.collection('reports').doc(widget.incidentId);
+
+  @override
+  void initState() {
+    super.initState();
+    _startLiveTracking();
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _startLiveTracking() async {
+    if (_trackingStarted) return;
+    _trackingStarted = true;
+
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5,
+    );
+
+    _positionSub =
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (pos) async {
+            await _ref.set({
+              'responderLiveLocation': GeoPoint(pos.latitude, pos.longitude),
+              'responderLastUpdatedAt': FieldValue.serverTimestamp(),
+              'statusCode': 'responder_dispatched',
+              'status': 'Responder Dispatched',
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          },
+        );
+  }
 
   Future<void> _solve(BuildContext context) async {
     final c = TextEditingController();
@@ -36,16 +94,31 @@ class ResponderDispatchPage extends StatelessWidget {
 
     if (resolution == null) return;
     if (resolution.trim().isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Resolution text is required.')),
       );
       return;
     }
 
-    await ResponderService().markProblemSolved(
-      incidentId: incidentId,
-      resolutionText: resolution,
-    );
+    await _positionSub?.cancel();
+
+    await _ref.set({
+      'citizenSolved': true,
+      'responderSolved': true,
+      'resolutionText': resolution.trim(),
+      'resolutionProvidedByResponder': resolution.trim(),
+      'solvedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'statusCode': 'problem_solved',
+      'status': 'Resolved',
+    }, SetOptions(merge: true));
+
+    await _ref.collection('timeline').add({
+      'message': 'Responder marked this report as solved.',
+      'statusCode': 'problem_solved',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
 
     if (!context.mounted) return;
     Navigator.pop(context);
@@ -53,22 +126,18 @@ class ResponderDispatchPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ref = FirebaseFirestore.instance
-        .collection('incidents')
-        .doc(incidentId);
-
     return Scaffold(
       appBar: AppBar(title: const Text('On Dispatch')),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: ref.snapshots(),
+        stream: _ref.snapshots(),
         builder: (context, snap) {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final d = snap.data!.data() ?? <String, dynamic>{};
-          final address = (d['address'] ?? '').toString();
-          final urgency = (d['urgency'] ?? '').toString();
+          final address = (d['locationText'] ?? d['address'] ?? '').toString();
+          final urgency = (d['urgencyLevel'] ?? d['urgency'] ?? '').toString();
           final status = (d['status'] ?? '').toString();
 
           return Padding(
@@ -92,25 +161,20 @@ class ResponderDispatchPage extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-
-                // ✅ MAP
                 SizedBox(
                   height: 320,
                   width: double.infinity,
                   child: IncidentLiveMap(
-                    incidentId: incidentId,
+                    incidentId: widget.incidentId,
                     showSimpleRouteLine: true,
-                    alwaysShowResponder:
-                        true, // responder always sees their marker if available
+                    alwaysShowResponder: true,
                   ),
                 ),
-
                 const SizedBox(height: 12),
                 const Text(
                   'Live tracking is running while you are on dispatch.',
                   style: TextStyle(color: Colors.black54),
                 ),
-
                 const Spacer(),
                 SizedBox(
                   width: double.infinity,

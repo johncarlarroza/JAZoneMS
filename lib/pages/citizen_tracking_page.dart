@@ -9,7 +9,7 @@ class CitizenTrackingPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ref = FirebaseFirestore.instance
-        .collection('incidents')
+        .collection('reports')
         .doc(incidentId);
 
     return Scaffold(
@@ -24,7 +24,11 @@ class CitizenTrackingPage extends StatelessWidget {
           final d = snap.data!.data() ?? <String, dynamic>{};
           final statusCode = (d['statusCode'] ?? '').toString();
 
-          if (statusCode != 'responder_dispatched') {
+          final hasAssignedResponder =
+              (d['assignedResponderId'] != null &&
+              d['assignedResponderId'].toString().trim().isNotEmpty);
+
+          if (statusCode != 'responder_dispatched' && !hasAssignedResponder) {
             return const Center(
               child: Text('Tracking will appear when responder is dispatched.'),
             );

@@ -4,6 +4,10 @@ import 'package:jazone_monitoring_dashboard/widgets/icident_live_map.dart';
 
 import '../services/incident_service.dart';
 
+// ✅ OpenStreetMap (no API key)
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' as ll;
+
 class IncidentDetailPage extends StatefulWidget {
   final String docId;
   const IncidentDetailPage({super.key, required this.docId});
@@ -20,6 +24,40 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
   String? _selectedResponderPhone;
 
   String? _selectedStatusCode;
+
+  /// ✅ FIX: Supports both schemas:
+  /// - imageUrls: ["https://..."] OR [{url:"https://..."}]
+  /// - imageUrl: "https://..." OR {url:"https://..."}
+  String _readImageUrl(Map<String, dynamic> d) {
+    final urls = d['imageUrls'];
+
+    if (urls is List && urls.isNotEmpty) {
+      final first = urls.first;
+      if (first is String) return first.trim();
+      if (first is Map) {
+        final u = first['url'] ?? first['publicUrl'] ?? first['link'];
+        if (u is String) return u.trim();
+      }
+    }
+
+    final v = d['imageUrl'];
+    if (v is String) return v.trim();
+    if (v is Map) {
+      final u = v['url'] ?? v['publicUrl'] ?? v['link'];
+      if (u is String) return u.trim();
+    }
+
+    final other = d['photoUrl'] ?? d['photo'] ?? d['image'];
+    if (other is String) return other.trim();
+
+    return '';
+  }
+
+  GeoPoint? _readGeoPoint(Map<String, dynamic> d) {
+    final loc = d['location'];
+    if (loc is GeoPoint) return loc;
+    return null;
+  }
 
   Future<void> _denyWithComment(BuildContext context) async {
     final controller = TextEditingController();
@@ -117,14 +155,9 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
     final solvedBy = solvedByController.text.trim();
 
-    // Store resolution + solved by, and set status to problem_solved.
-    // We use the service if it exists, otherwise we do direct writes safely.
     try {
-      // If you already have a method in your service for this, feel free to use it.
-      // Example: await _service.markSolved(widget.docId, resolutionText: resolution, solvedBy: solvedBy);
-
       final doc = FirebaseFirestore.instance
-          .collection('incidents')
+          .collection('reports')
           .doc(widget.docId);
 
       await doc.set({
@@ -150,8 +183,9 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ FIX: your app uses "reports" collection (not "incidents")
     final incRef = FirebaseFirestore.instance
-        .collection('incidents')
+        .collection('reports')
         .doc(widget.docId);
 
     return Scaffold(
@@ -201,30 +235,48 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                 (_selectedStatusCode == 'problem_solved') ||
                 (statusCode == 'problem_solved');
 
+            // ✅ Image URL fix
+            final imageUrl = _readImageUrl(d);
+
+            // ✅ Location (GeoPoint fix)
+            final geo = _readGeoPoint(d);
+
             return SingleChildScrollView(
               padding: const EdgeInsets.all(18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Image
-                  if ((d['imageUrl'] ?? '').toString().isNotEmpty)
+                  // ✅ Image (Supabase URL)
+                  if (imageUrl.isNotEmpty)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(14),
                       child: Image.network(
-                        d['imageUrl'],
-                        height: 220,
+                        imageUrl,
+                        height: 200,
                         width: double.infinity,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          height: 220,
+                          alignment: Alignment.center,
+                          color: Colors.black.withOpacity(0.2),
+                          child: const Text(
+                            'Image failed to load',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ),
                       ),
                     ),
-                  const SizedBox(height: 16),
+                  if (imageUrl.isNotEmpty) const SizedBox(height: 16),
 
                   _glassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          (d['address'] ?? 'Unknown location').toString(),
+                          (d['address'] ??
+                                  d['locationText'] ??
+                                  'Unknown location')
+                              .toString(),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -244,7 +296,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                           children: [
                             _chip('Status: $status'),
                             _chip(
-                              'Urgency: ${(d['urgency'] ?? '').toString()}',
+                              'Urgency: ${(d['urgency'] ?? d['urgencyLevel'] ?? '').toString()}',
                             ),
                           ],
                         ),
@@ -287,7 +339,74 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
                   const SizedBox(height: 14),
 
-                  // Admin actions
+                  // ✅ NEW: OpenStreetMap (no API key) - shows if GeoPoint exists
+                  if (geo != null) ...[
+                    _glassCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'OpenStreetMap',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: 260,
+                            width: double.infinity,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: FlutterMap(
+                                options: MapOptions(
+                                  initialCenter: ll.LatLng(
+                                    geo.latitude,
+                                    geo.longitude,
+                                  ),
+                                  initialZoom: 16,
+                                ),
+                                children: [
+                                  TileLayer(
+                                    urlTemplate:
+                                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    userAgentPackageName:
+                                        'com.example.jazone_admin',
+                                  ),
+                                  MarkerLayer(
+                                    markers: [
+                                      Marker(
+                                        point: ll.LatLng(
+                                          geo.latitude,
+                                          geo.longitude,
+                                        ),
+                                        width: 44,
+                                        height: 44,
+                                        child: const Icon(
+                                          Icons.location_pin,
+                                          size: 44,
+                                          color: Colors.orangeAccent,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Lat: ${geo.latitude.toStringAsFixed(6)} • Lng: ${geo.longitude.toStringAsFixed(6)}',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // ✅ Admin actions (UNCHANGED)
                   _glassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,16 +420,15 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        SizedBox(
-                          height: 320,
-                          width: double.infinity,
-                          child: IncidentLiveMap(
-                            incidentId: widget.docId,
-                            showSimpleRouteLine: true,
-                            alwaysShowResponder: true,
-                          ),
-                        ),
-
+                        // SizedBox(
+                        //   height: 320,
+                        //   width: double.infinity,
+                        //   child: IncidentLiveMap(
+                        //     incidentId: widget.docId,
+                        //     showSimpleRouteLine: true,
+                        //     alwaysShowResponder: true,
+                        //   ),
+                        // ),
                         Row(
                           children: [
                             Expanded(
@@ -354,10 +472,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                             ),
                           ],
                         ),
-
                         const SizedBox(height: 12),
-
-                        // NEW: Mark as Solved (with resolution input)
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
@@ -373,10 +488,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                             label: const Text('Mark as Solved'),
                           ),
                         ),
-
                         const SizedBox(height: 14),
-
-                        // Status dropdown (new status codes)
                         _dropdownLabel('Update Status'),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<String>(
@@ -415,7 +527,6 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                           onChanged: (v) =>
                               setState(() => _selectedStatusCode = v),
                         ),
-
                         const SizedBox(height: 10),
                         SizedBox(
                           width: double.infinity,
@@ -432,13 +543,9 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                             child: const Text('Apply Status'),
                           ),
                         ),
-
                         const SizedBox(height: 16),
-
-                        // Assign responder
                         _dropdownLabel('Assign Available Responder'),
                         const SizedBox(height: 6),
-
                         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                           stream: _service.availableResponders(),
                           builder: (context, rsSnap) {
@@ -451,7 +558,6 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
                             final docs = rsSnap.data!.docs;
 
-                            // Build items with optional distance sorting (if responder has currentLocation)
                             final incidentLat = (d['latitude'] is num)
                                 ? (d['latitude'] as num).toDouble()
                                 : 0.0;
@@ -542,7 +648,6 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                                   _selectedResponderPhone ?? '',
                                             );
 
-                                            // ✅ NEW: Auto-update status when responder is assigned
                                             await _service.setStatusCode(
                                               widget.docId,
                                               'responder_dispatched',
@@ -573,7 +678,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
                   const SizedBox(height: 14),
 
-                  // Timeline
+                  // Timeline (UNCHANGED)
                   _glassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

@@ -23,8 +23,9 @@ class IncidentLiveMap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ CHANGED: reports collection (shared with Jazone citizen app)
     final incRef = FirebaseFirestore.instance
-        .collection('incidents')
+        .collection('reports')
         .doc(incidentId);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -36,20 +37,23 @@ class IncidentLiveMap extends StatelessWidget {
 
         final inc = incSnap.data!.data() ?? <String, dynamic>{};
 
-        final incLat = _toDouble(inc['latitude']);
-        final incLng = _toDouble(inc['longitude']);
+        // ✅ Support both:
+        // - legacy: latitude/longitude fields
+        // - new: location: [lat, lng]
+        final incLat = _readLat(inc);
+        final incLng = _readLng(inc);
 
         // If no coordinates, show placeholder
         if (incLat == null || incLng == null) {
           return _emptyState(
             'No location found',
-            'This incident has no latitude/longitude yet.',
+            'This report has no latitude/longitude yet.',
           );
         }
 
         final incidentPoint = LatLng(incLat, incLng);
 
-        // Responder fields stored on incident doc
+        // Responder fields stored on report doc
         final responderId = (inc['assignedResponderId'] ?? '')
             .toString()
             .trim();
@@ -59,7 +63,17 @@ class IncidentLiveMap extends StatelessWidget {
           return _mapOnlyIncident(context, incidentPoint);
         }
 
-        // Pull responder profile / live location
+        // ✅ Optional: if your responder app writes live location directly to report doc
+        LatLng? responderPointFromReport;
+        final repLive = inc['responderLiveLocation'];
+        if (repLive is GeoPoint) {
+          responderPointFromReport = LatLng(
+            repLive.latitude,
+            repLive.longitude,
+          );
+        }
+
+        // Pull responder profile / live location (current setup)
         final responderRef = FirebaseFirestore.instance
             .collection('users')
             .doc(responderId);
@@ -68,6 +82,14 @@ class IncidentLiveMap extends StatelessWidget {
           stream: responderRef.snapshots(),
           builder: (context, rSnap) {
             if (!rSnap.hasData) {
+              // If no user doc yet, still show incident (and maybe report live loc if available)
+              if (responderPointFromReport != null) {
+                return _mapIncidentAndResponder(
+                  incidentPoint: incidentPoint,
+                  responderPoint: responderPointFromReport,
+                  locationEnabled: true,
+                );
+              }
               return _mapOnlyIncident(context, incidentPoint);
             }
 
@@ -80,8 +102,9 @@ class IncidentLiveMap extends StatelessWidget {
                 ? (r['currentLocation'] as GeoPoint)
                 : null;
 
-            LatLng? responderPoint;
-            if (gp != null) {
+            // Prefer report live location if present, else user currentLocation
+            LatLng? responderPoint = responderPointFromReport;
+            if (responderPoint == null && gp != null) {
               responderPoint = LatLng(gp.latitude, gp.longitude);
             }
 
@@ -91,7 +114,6 @@ class IncidentLiveMap extends StatelessWidget {
             }
 
             final markers = <Marker>[_incidentMarker(incidentPoint)];
-
             final polylines = <Polyline>[];
 
             if (responderPoint != null &&
@@ -146,6 +168,59 @@ class IncidentLiveMap extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  /// Used when responder location comes from report doc only (no user doc)
+  Widget _mapIncidentAndResponder({
+    required LatLng incidentPoint,
+    required LatLng responderPoint,
+    required bool locationEnabled,
+  }) {
+    final markers = <Marker>[
+      _incidentMarker(incidentPoint),
+      _responderMarker(responderPoint),
+    ];
+
+    final polylines = <Polyline>[];
+    if (showSimpleRouteLine) {
+      polylines.add(
+        Polyline(
+          points: [responderPoint, incidentPoint],
+          strokeWidth: 4,
+          color: Colors.lightBlueAccent,
+        ),
+      );
+    }
+
+    final center = LatLng(
+      (incidentPoint.latitude + responderPoint.latitude) / 2,
+      (incidentPoint.longitude + responderPoint.longitude) / 2,
+    );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: FlutterMap(
+        options: MapOptions(
+          initialCenter: center,
+          initialZoom: 13,
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.all,
+          ),
+        ),
+        children: [
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.jazone.monitoring',
+          ),
+          if (polylines.isNotEmpty) PolylineLayer(polylines: polylines),
+          MarkerLayer(markers: markers),
+          _MapLegend(
+            locationEnabled: locationEnabled,
+            hasResponderLocation: true,
+          ),
+        ],
+      ),
     );
   }
 
@@ -247,6 +322,33 @@ class IncidentLiveMap extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  // ✅ Read from:
+  // - latitude field
+  // - else location array: [lat, lng]
+  double? _readLat(Map<String, dynamic> inc) {
+    final v = inc['latitude'];
+    final d = _toDouble(v);
+    if (d != null) return d;
+
+    final loc = inc['location'];
+    if (loc is List && loc.isNotEmpty && loc.first is num) {
+      return (loc.first as num).toDouble();
+    }
+    return null;
+  }
+
+  double? _readLng(Map<String, dynamic> inc) {
+    final v = inc['longitude'];
+    final d = _toDouble(v);
+    if (d != null) return d;
+
+    final loc = inc['location'];
+    if (loc is List && loc.length >= 2 && loc[1] is num) {
+      return (loc[1] as num).toDouble();
+    }
+    return null;
   }
 
   double? _toDouble(dynamic v) {

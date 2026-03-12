@@ -8,17 +8,46 @@ class DashboardHome extends StatelessWidget {
   const DashboardHome({super.key});
 
   String _normalizeStatus(Map<String, dynamic> data) {
-    // Prefer statusCode if available
+    // ✅ Prefer statusCode if available
     final code = (data['statusCode'] ?? '').toString().toLowerCase().trim();
     if (code.isNotEmpty) return code;
 
-    // Backward compatible: map legacy "status" strings
+    // ✅ New schema support
+    if (data['citizenSolved'] == true || data['responderSolved'] == true) {
+      return 'problem_solved';
+    }
+
+    final adminDecision = (data['adminDecision'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+
+    if (adminDecision == 'denied' || adminDecision == 'rejected') {
+      return 'denied_by_admin';
+    }
+
+    if (adminDecision == 'accepted' || adminDecision == 'approved') {
+      // ✅ FIX: support BOTH assignedResponderUid (new) and assignedResponderId (old)
+      final assignedUid = (data['assignedResponderUid'] ?? '')
+          .toString()
+          .trim();
+      final assignedId = (data['assignedResponderId'] ?? '').toString().trim();
+
+      final hasAssigned = assignedUid.isNotEmpty || assignedId.isNotEmpty;
+
+      if (hasAssigned) return 'responder_dispatched';
+      return 'accepted_by_admin';
+    }
+
+    // ✅ Backward compatible: map legacy "status" strings
     final s = (data['status'] ?? '').toString().toLowerCase().trim();
     if (s == 'accepted') return 'accepted_by_admin';
     if (s == 'under action') return 'under_surveillance';
     if (s == 'resolved') return 'problem_solved';
     if (s == 'rejected' || s == 'denied') return 'denied_by_admin';
     if (s == 'reported') return 'pending_admin';
+    if (s == 'okay') return 'pending_admin';
+
     return 'pending_admin';
   }
 
@@ -33,7 +62,7 @@ class DashboardHome extends StatelessWidget {
         ),
       ),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('incidents').snapshots(),
+        stream: FirebaseFirestore.instance.collection('reports').snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -47,29 +76,33 @@ class DashboardHome extends StatelessWidget {
           int underAction = 0;
           int resolved = 0;
           int denied = 0;
+          int dispatched = 0;
+          int pending = 0; // ✅ FIX: count pending directly (no subtraction)
 
           for (final doc in incidents) {
             final data = doc.data();
             final st = _normalizeStatus(data);
 
-            if (st == 'accepted_by_admin')
+            if (st == 'accepted_by_admin') {
               accepted++;
-            else if (st == 'under_surveillance')
+            } else if (st == 'under_surveillance') {
               underAction++;
-            else if (st == 'problem_solved')
+            } else if (st == 'responder_dispatched') {
+              dispatched++;
+            } else if (st == 'problem_solved') {
               resolved++;
-            else if (st == 'denied_by_admin')
+            } else if (st == 'denied_by_admin') {
               denied++;
+            } else {
+              // ✅ Anything else goes to pending
+              pending++;
+            }
           }
-
-          final pending =
-              totalRequests - accepted - underAction - resolved - denied;
 
           return LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
 
-              // Responsive columns
               final statColumns = (width / 260).floor().clamp(1, 5);
               final chartColumns = (width / 560).floor().clamp(1, 2);
 
@@ -80,12 +113,10 @@ class DashboardHome extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ✅ Header (Web-style)
                     _HeaderBar(today: today),
 
                     const SizedBox(height: 18),
 
-                    // ✅ Notice / Summary strip
                     _GlassCard(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 18,
@@ -144,7 +175,6 @@ class DashboardHome extends StatelessWidget {
 
                     const SizedBox(height: 26),
 
-                    // ✅ Stats Section
                     Row(
                       children: const [
                         Icon(Icons.insights, color: Colors.white70, size: 18),
@@ -170,7 +200,7 @@ class DashboardHome extends StatelessWidget {
                         crossAxisSpacing: 18,
                         childAspectRatio: 1.25,
                       ),
-                      itemCount: 6,
+                      itemCount: 7,
                       itemBuilder: (context, index) {
                         final stats = [
                           StatCard(
@@ -190,6 +220,12 @@ class DashboardHome extends StatelessWidget {
                             value: '$underAction',
                             icon: Icons.visibility,
                             color: const Color(0xFFFFC107),
+                          ),
+                          StatCard(
+                            title: 'Responder Dispatched',
+                            value: '$dispatched',
+                            icon: Icons.local_hospital,
+                            color: const Color(0xFF00BCD4),
                           ),
                           StatCard(
                             title: 'Resolved',
@@ -216,7 +252,6 @@ class DashboardHome extends StatelessWidget {
 
                     const SizedBox(height: 34),
 
-                    // ✅ Analytics Section (with glass container)
                     Row(
                       children: const [
                         Icon(Icons.analytics, color: Colors.white70, size: 18),
@@ -247,6 +282,7 @@ class DashboardHome extends StatelessWidget {
                         final chartData = <String, double>{
                           'Accepted': accepted.toDouble(),
                           'Under Surveillance': underAction.toDouble(),
+                          'Responder Dispatched': dispatched.toDouble(),
                           'Resolved': resolved.toDouble(),
                           'Denied': denied.toDouble(),
                           'Pending': pending.toDouble(),
@@ -274,7 +310,6 @@ class DashboardHome extends StatelessWidget {
 
                     const SizedBox(height: 26),
 
-                    // ✅ Quick insights footer
                     _GlassCard(
                       padding: const EdgeInsets.all(16),
                       child: Row(

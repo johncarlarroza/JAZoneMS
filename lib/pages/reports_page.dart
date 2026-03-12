@@ -14,9 +14,10 @@ class ReportsPage extends StatefulWidget {
 class _ReportsPageState extends State<ReportsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// 🔥 GET DATA FROM `incidents`
+  /// ✅ GET DATA FROM `reports`
   Future<Map<String, dynamic>> _getReportsData() async {
-    final snapshot = await _firestore.collection('incidents').get();
+    // ✅ Use the SAME collection used by your Jazone citizen app
+    final snapshot = await _firestore.collection('reports').get();
 
     int total = snapshot.docs.length;
     int reported = 0;
@@ -24,15 +25,34 @@ class _ReportsPageState extends State<ReportsPage> {
     int rejected = 0;
 
     for (var doc in snapshot.docs) {
-      final status = (doc['status'] ?? '').toString().toLowerCase();
+      final data = doc.data();
+      final status = (data['status'] ?? '').toString().toLowerCase();
+      final adminDecision = (data['adminDecision'] ?? '')
+          .toString()
+          .toLowerCase();
+      final bool citizenSolved = (data['citizenSolved'] == true);
 
-      if (status == 'reported') {
-        reported++;
-      } else if (status == 'solved') {
+      // Count categories in a way that works for BOTH old and new schemas
+      if (citizenSolved || status.contains('resolved') || status == 'solved') {
         solved++;
-      } else if (status == 'rejected') {
-        rejected++;
+        continue;
       }
+
+      if (adminDecision == 'denied' ||
+          adminDecision == 'rejected' ||
+          status == 'rejected') {
+        rejected++;
+        continue;
+      }
+
+      // "Reported" / Pending
+      if (adminDecision.isEmpty || adminDecision == 'pending') {
+        reported++;
+        continue;
+      }
+
+      // Otherwise (approved/accepted but not solved)
+      reported++;
     }
 
     return {
@@ -67,10 +87,10 @@ class _ReportsPageState extends State<ReportsPage> {
                 ),
               ),
               pw.SizedBox(height: 20),
-              _pdfRow('Total Incidents', total),
-              _pdfRow('Reported', reported),
+              _pdfRow('Total Reports', total),
+              _pdfRow('Reported / Active', reported),
               _pdfRow('Solved', solved),
-              _pdfRow('Rejected', rejected),
+              _pdfRow('Rejected / Denied', rejected),
               pw.SizedBox(height: 20),
               pw.Text(
                 'Generated on: ${DateTime.now()}',
@@ -232,33 +252,29 @@ class _ReportsPageState extends State<ReportsPage> {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2E3E),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF2A3F52)),
+        color: const Color(0xFF1B2A3A),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.35)),
       ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(color: Color(0xFF90A3B1), fontSize: 11),
-              ),
-              Icon(icon, color: color, size: 16),
-            ],
-          ),
+          Icon(icon, color: color, size: 28),
+          const Spacer(),
           Text(
             value,
-            style: TextStyle(
-              color: color,
-              fontSize: 20,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
               fontWeight: FontWeight.bold,
             ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            title,
+            style: const TextStyle(color: Color(0xFF90A3B1), fontSize: 14),
           ),
         ],
       ),
