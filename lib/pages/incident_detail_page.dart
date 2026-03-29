@@ -59,6 +59,16 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
     return null;
   }
 
+  GeoPoint? _readResponderGeoPoint(Map<String, dynamic> d) {
+    final loc = d['responderLiveLocation'];
+    if (loc is GeoPoint) return loc;
+
+    final responderLoc = d['responderLocation'];
+    if (responderLoc is GeoPoint) return responderLoc;
+
+    return null;
+  }
+
   Future<void> _denyWithComment(BuildContext context) async {
     final controller = TextEditingController();
 
@@ -229,6 +239,9 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
 
                 final status = (d['status'] ?? 'Reported').toString();
                 final statusCode = (d['statusCode'] ?? '').toString();
+                final liveStatusCode = statusCode.isNotEmpty
+                    ? statusCode
+                    : 'pending_admin';
 
                 final adminComment = d['adminComment']?.toString();
                 final responderDecision = d['responderDecision']?.toString();
@@ -243,16 +256,16 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                 final resolutionText = d['resolutionText']?.toString();
                 final solvedBy = d['solvedBy']?.toString();
 
-                _selectedStatusCode ??= statusCode.isNotEmpty
-                    ? statusCode
-                    : 'pending_admin';
+                final effectiveStatusCode =
+                    _selectedStatusCode ?? liveStatusCode;
 
                 final isSolved =
-                    _selectedStatusCode == 'problem_solved' ||
-                    statusCode == 'problem_solved';
+                    effectiveStatusCode == 'problem_solved' ||
+                    liveStatusCode == 'problem_solved';
 
                 final imageUrl = _readImageUrl(d);
                 final geo = _readGeoPoint(d);
+                final responderGeo = _readResponderGeoPoint(d);
 
                 return SingleChildScrollView(
                   padding: const EdgeInsets.all(12),
@@ -270,6 +283,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                 d: d,
                                 imageUrl: imageUrl,
                                 geo: geo,
+                                responderGeo: responderGeo,
                                 status: status,
                                 adminComment: adminComment,
                                 assignedResponderName: assignedResponderName,
@@ -289,6 +303,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                 isSolved: isSolved,
                                 incRef: incRef,
                                 assignedResponderName: assignedResponderName,
+                                liveStatusCode: liveStatusCode,
                               ),
                             ),
                           ],
@@ -301,6 +316,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                             d: d,
                             imageUrl: imageUrl,
                             geo: geo,
+                            responderGeo: responderGeo,
                             status: status,
                             adminComment: adminComment,
                             assignedResponderName: assignedResponderName,
@@ -317,6 +333,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                             isSolved: isSolved,
                             incRef: incRef,
                             assignedResponderName: assignedResponderName,
+                            liveStatusCode: liveStatusCode,
                           ),
                         ],
                       );
@@ -335,6 +352,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
     required Map<String, dynamic> d,
     required String imageUrl,
     required GeoPoint? geo,
+    required GeoPoint? responderGeo,
     required String status,
     required String? adminComment,
     required String? assignedResponderName,
@@ -344,6 +362,9 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
     required String? resolutionText,
     required String? solvedBy,
   }) {
+    final citizenName = (d['citizenName'] ?? '').toString();
+    final citizenPhone = (d['citizenPhone'] ?? '').toString();
+
     return Column(
       children: [
         if (geo != null)
@@ -354,14 +375,14 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                 _sectionTitle('Incident Map'),
                 const SizedBox(height: 12),
                 SizedBox(
-                  height: 265,
+                  height: 285,
                   width: double.infinity,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: FlutterMap(
                       options: MapOptions(
                         initialCenter: ll.LatLng(geo.latitude, geo.longitude),
-                        initialZoom: 16,
+                        initialZoom: 15,
                       ),
                       children: [
                         TileLayer(
@@ -373,25 +394,92 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                           markers: [
                             Marker(
                               point: ll.LatLng(geo.latitude, geo.longitude),
-                              width: 46,
-                              height: 46,
-                              child: const Icon(
-                                Icons.location_pin,
-                                color: Colors.redAccent,
-                                size: 40,
+                              width: 120,
+                              height: 56,
+                              child: Column(
+                                children: const [
+                                  Icon(
+                                    Icons.location_pin,
+                                    color: Colors.redAccent,
+                                    size: 34,
+                                  ),
+                                  SizedBox(height: 2),
+                                  Flexible(
+                                    child: Text(
+                                      'Citizen',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
+                            if (responderGeo != null)
+                              Marker(
+                                point: ll.LatLng(
+                                  responderGeo.latitude,
+                                  responderGeo.longitude,
+                                ),
+                                width: 120,
+                                height: 56,
+                                child: Column(
+                                  children: const [
+                                    Icon(
+                                      Icons.directions_run,
+                                      color: Colors.lightGreenAccent,
+                                      size: 30,
+                                    ),
+                                    SizedBox(height: 2),
+                                    Flexible(
+                                      child: Text(
+                                        'Responder',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                           ],
                         ),
+                        if (responderGeo != null)
+                          PolylineLayer(
+                            polylines: [
+                              Polyline(
+                                points: [
+                                  ll.LatLng(geo.latitude, geo.longitude),
+                                  ll.LatLng(
+                                    responderGeo.latitude,
+                                    responderGeo.longitude,
+                                  ),
+                                ],
+                                strokeWidth: 4,
+                                color: const Color(0xFF56C6F5),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 Text(
-                  'Latitude: ${geo.latitude.toStringAsFixed(6)} | Longitude: ${geo.longitude.toStringAsFixed(6)}',
+                  'Citizen Location: ${geo.latitude.toStringAsFixed(6)} | ${geo.longitude.toStringAsFixed(6)}',
                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
+                if (responderGeo != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Responder Location: ${responderGeo.latitude.toStringAsFixed(6)} | ${responderGeo.longitude.toStringAsFixed(6)}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
               ],
             ),
           ),
@@ -458,6 +546,17 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                   ),
                 ],
               ),
+              if (citizenName.isNotEmpty || citizenPhone.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _infoBox(
+                  'Citizen',
+                  citizenName.isEmpty
+                      ? citizenPhone
+                      : citizenPhone.isEmpty
+                      ? citizenName
+                      : '$citizenName • $citizenPhone',
+                ),
+              ],
               if (adminComment != null && adminComment.trim().isNotEmpty) ...[
                 const SizedBox(height: 12),
                 _infoBox('Admin Comment', adminComment),
@@ -470,6 +569,13 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                     assignedResponderPhone.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   _infoBox('Responder Phone', assignedResponderPhone),
+                ],
+                if (responderGeo != null) ...[
+                  const SizedBox(height: 8),
+                  _infoBox(
+                    'Responder Location',
+                    '${responderGeo.latitude.toStringAsFixed(6)}, ${responderGeo.longitude.toStringAsFixed(6)}',
+                  ),
                 ],
               ],
               if (responderDecision != null &&
@@ -505,6 +611,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
     required bool isSolved,
     required DocumentReference<Map<String, dynamic>> incRef,
     required String? assignedResponderName,
+    required String liveStatusCode,
   }) {
     return Column(
       children: [
@@ -556,16 +663,18 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                 color: const Color(0xFFA9DE62),
                 textColor: Colors.black,
                 fullWidth: true,
-                onPressed: () => _markAsSolved(
-                  context,
-                  defaultSolvedBy: assignedResponderName,
-                ),
+                onPressed: isSolved
+                    ? null
+                    : () => _markAsSolved(
+                        context,
+                        defaultSolvedBy: assignedResponderName,
+                      ),
               ),
               const SizedBox(height: 18),
               _label('Update Status'),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: _selectedStatusCode,
+                value: _selectedStatusCode ?? liveStatusCode,
                 decoration: _dropdownDecoration(),
                 dropdownColor: Colors.white,
                 items: const [
@@ -598,7 +707,11 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                     child: Text('Denied by Admin'),
                   ),
                 ],
-                onChanged: (v) => setState(() => _selectedStatusCode = v),
+                onChanged: (v) {
+                  setState(() {
+                    _selectedStatusCode = v;
+                  });
+                },
               ),
               const SizedBox(height: 10),
               _actionButton(
@@ -607,14 +720,21 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                 color: Colors.black,
                 textColor: Colors.white,
                 fullWidth: true,
-                onPressed: () async {
-                  final code = _selectedStatusCode ?? 'pending_admin';
-                  await _service.setStatusCode(widget.docId, code);
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Status updated')),
-                  );
-                },
+                onPressed: isSolved
+                    ? null
+                    : () async {
+                        final code = _selectedStatusCode ?? liveStatusCode;
+                        await _service.setStatusCode(widget.docId, code);
+
+                        if (!mounted) return;
+                        setState(() {
+                          _selectedStatusCode = null;
+                        });
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Status updated')),
+                        );
+                      },
               ),
               const SizedBox(height: 18),
               _label('Assign Available Responder'),
@@ -747,12 +867,11 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                                   responderPhone: _selectedResponderPhone ?? '',
                                 );
 
-                                await _service.setStatusCode(
-                                  widget.docId,
-                                  'responder_dispatched',
-                                );
-
                                 if (!mounted) return;
+                                setState(() {
+                                  _selectedStatusCode = null;
+                                });
+
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(

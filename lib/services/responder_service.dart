@@ -2,51 +2,50 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class ResponderService {
-  final _db = FirebaseFirestore.instance;
-  final _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String get uid => _auth.currentUser!.uid;
 
-  /// Stream incidents assigned to this responder
+  CollectionReference<Map<String, dynamic>> get _reports =>
+      _db.collection('reports');
+
+  /// Stream reports assigned to this responder
   Stream<QuerySnapshot<Map<String, dynamic>>> assignedIncidentsStream() {
-    return _db
-        .collection('incidents')
-        .where('assignedResponderId', isEqualTo: uid)
+    return _reports
+        .where('assignedResponderUid', isEqualTo: uid)
+        .where('adminDecision', isEqualTo: 'accepted')
         .orderBy('updatedAt', descending: true)
         .snapshots();
   }
 
-  /// Stream incidents for history (accepted or denied)
+  /// Stream history for this responder
   Stream<QuerySnapshot<Map<String, dynamic>>> historyStream() {
-    return _db
-        .collection('incidents')
-        .where('assignedResponderId', isEqualTo: uid)
-        .where('responderDecision', whereIn: ['accepted', 'denied'])
-        .orderBy('responderDecisionAt', descending: true)
+    return _reports
+        .where('assignedResponderUid', isEqualTo: uid)
+        .orderBy('updatedAt', descending: true)
         .snapshots();
   }
 
   Future<void> acceptIncident(String incidentId) async {
-    final incidentRef = _db.collection('incidents').doc(incidentId);
+    final reportRef = _reports.doc(incidentId);
 
-    // Force dispatch state
-    await incidentRef.set({
+    await reportRef.set({
       'responderDecision': 'accepted',
       'responderDecisionAt': FieldValue.serverTimestamp(),
-      'status': 'Responder Dispatched',
       'statusCode': 'responder_dispatched',
+      'status': 'Responder Dispatched',
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
     await _addTimeline(
       incidentId: incidentId,
       statusCode: 'responder_dispatched',
-      message: 'Responder accepted and dispatched',
+      message: 'Responder accepted and is now dispatched.',
       byRole: 'responder',
       byUid: uid,
     );
 
-    // Optional: notify citizen (only if citizenId exists)
     await _notifyCitizenIfPossible(
       incidentId: incidentId,
       title: 'Responder dispatched',
@@ -56,27 +55,26 @@ class ResponderService {
   }
 
   Future<void> denyIncident(String incidentId, {String? reason}) async {
-    final incidentRef = _db.collection('incidents').doc(incidentId);
+    final reportRef = _reports.doc(incidentId);
+    final cleanReason = (reason ?? '').trim();
 
-    await incidentRef.set({
+    await reportRef.set({
       'responderDecision': 'denied',
-      'responderDeniedReason': (reason ?? '').trim(),
+      'responderDeniedReason': cleanReason,
       'responderDecisionAt': FieldValue.serverTimestamp(),
-      // keep status as accepted_by_admin or whatever admin set
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
     await _addTimeline(
       incidentId: incidentId,
       statusCode: 'responder_denied',
-      message: (reason ?? '').trim().isEmpty
-          ? 'Responder denied the assignment'
-          : 'Responder denied: ${(reason ?? '').trim()}',
+      message: cleanReason.isEmpty
+          ? 'Responder denied the assignment.'
+          : 'Responder denied the assignment: $cleanReason',
       byRole: 'responder',
       byUid: uid,
     );
 
-    // Optional: notify citizen that assignment was denied (admin can reassign)
     await _notifyCitizenIfPossible(
       incidentId: incidentId,
       title: 'Responder unavailable',
@@ -89,20 +87,25 @@ class ResponderService {
     required String incidentId,
     required String resolutionText,
   }) async {
-    final incidentRef = _db.collection('incidents').doc(incidentId);
+    final reportRef = _reports.doc(incidentId);
+    final cleanResolution = resolutionText.trim();
 
-    await incidentRef.set({
-      'status': 'Resolved',
-      'statusCode': 'problem_solved',
-      'resolutionText': resolutionText.trim(),
+    await reportRef.set({
+      'responderSolved': true,
+      'citizenSolved': false,
+      'resolutionText': cleanResolution,
+      'resolutionProvidedByResponder': cleanResolution,
       'solvedBy': 'responder',
+      'resolvedAt': FieldValue.serverTimestamp(),
+      'statusCode': 'problem_solved',
+      'status': 'Resolved',
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
     await _addTimeline(
       incidentId: incidentId,
       statusCode: 'problem_solved',
-      message: 'Problem solved by responder',
+      message: 'Responder marked the report as solved.',
       byRole: 'responder',
       byUid: uid,
     );
@@ -110,7 +113,7 @@ class ResponderService {
     await _notifyCitizenIfPossible(
       incidentId: incidentId,
       title: 'Problem solved',
-      body: 'Resolution: ${resolutionText.trim()}',
+      body: 'Resolution: $cleanResolution',
       type: 'solved',
     );
   }
@@ -120,7 +123,7 @@ class ResponderService {
     required double lat,
     required double lng,
   }) async {
-    await _db.collection('incidents').doc(incidentId).set({
+    await _reports.doc(incidentId).set({
       'responderLiveLocation': GeoPoint(lat, lng),
       'responderLocationUpdatedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -137,7 +140,9 @@ class ResponderService {
     final update = <String, dynamic>{
       'locationEnabled': locationEnabled,
       'availabilityStatus': availabilityStatus,
+      'isOnline': locationEnabled,
       'lastLocationUpdate': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     };
 
     if (currentLocation != null) {
@@ -154,17 +159,13 @@ class ResponderService {
     required String byRole,
     String? byUid,
   }) async {
-    await _db
-        .collection('incidents')
-        .doc(incidentId)
-        .collection('timeline')
-        .add({
-          'statusCode': statusCode,
-          'message': message,
-          'byRole': byRole,
-          'byUid': byUid,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+    await _reports.doc(incidentId).collection('timeline').add({
+      'statusCode': statusCode,
+      'message': message,
+      'byRole': byRole,
+      'byUid': byUid,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> _notifyCitizenIfPossible({
@@ -173,21 +174,22 @@ class ResponderService {
     required String body,
     required String type,
   }) async {
-    final doc = await _db.collection('incidents').doc(incidentId).get();
+    final doc = await _reports.doc(incidentId).get();
     final data = doc.data() ?? <String, dynamic>{};
-    final citizenId = data['citizenId']?.toString();
 
-    if (citizenId == null || citizenId.trim().isEmpty) return;
+    final citizenUid = (data['citizenUid'] ?? '').toString().trim();
+    if (citizenUid.isEmpty) return;
 
     await _db
         .collection('users')
-        .doc(citizenId)
+        .doc(citizenUid)
         .collection('notifications')
         .add({
           'title': title,
           'body': body,
           'type': type,
-          'incidentId': incidentId,
+          'reportId': incidentId,
+          'incidentId': incidentId, // keep old key too for compatibility
           'isRead': false,
           'createdAt': FieldValue.serverTimestamp(),
         });

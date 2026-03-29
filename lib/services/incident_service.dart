@@ -2,15 +2,15 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class IncidentService {
-  final _db = FirebaseFirestore.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  /// ✅ reports collection (shared with Jazone citizen app)
+  /// Shared collection used by Citizen App + Responder App + Admin Dashboard
   CollectionReference<Map<String, dynamic>> get _reports =>
       _db.collection('reports');
 
   Stream<QuerySnapshot<Map<String, dynamic>>> stream() => _reports.snapshots();
 
-  /// Backward compatible progress update (your existing feature)
+  /// Backward-compatible progress update
   Future<void> updateProgress(String id, Map<String, bool> progress) async {
     String status = 'Reported';
     String statusCode = 'pending_admin';
@@ -19,7 +19,7 @@ class IncidentService {
       status = 'Resolved';
       statusCode = 'problem_solved';
     } else if (progress['onAction'] == true) {
-      status = 'Under Action';
+      status = 'Under Surveillance';
       statusCode = 'under_surveillance';
     } else if (progress['accepted'] == true) {
       status = 'Accepted';
@@ -31,7 +31,6 @@ class IncidentService {
       'status': status,
       'statusCode': statusCode,
 
-      // ✅ match report schema
       if (statusCode == 'accepted_by_admin') 'adminDecision': 'accepted',
       if (statusCode == 'denied_by_admin') 'adminDecision': 'denied',
       if (statusCode == 'problem_solved') 'citizenSolved': true,
@@ -45,15 +44,23 @@ class IncidentService {
       message: 'Status updated: $status',
       byRole: 'admin',
     );
+
+    await _notifyCitizenIfPossible(
+      incidentId: id,
+      title: 'Status update',
+      body: 'Update: $status',
+      type: 'status_update',
+    );
   }
 
   Future<void> acceptIncident(String id) async {
-    // ✅ keep existing progress map keys if any, but ensure accepted=true
     final doc = await _reports.doc(id).get();
     final data = doc.data() ?? <String, dynamic>{};
+
     final Map<String, dynamic> oldProgress = (data['progress'] is Map)
         ? Map<String, dynamic>.from(data['progress'])
-        : {};
+        : <String, dynamic>{};
+
     oldProgress['accepted'] = true;
 
     await _reports.doc(id).set({
@@ -106,23 +113,33 @@ class IncidentService {
     );
   }
 
-  /// Admin can update these statuses:
-  /// pending_admin, accepted_by_admin, reported_to_lgu, under_surveillance,
-  /// responder_dispatched, problem_solved, denied_by_admin
+  /// Allowed status codes:
+  /// pending_admin
+  /// accepted_by_admin
+  /// reported_to_lgu
+  /// under_surveillance
+  /// responder_dispatched
+  /// problem_solved
+  /// denied_by_admin
   Future<void> setStatusCode(String id, String statusCode) async {
     final String statusLabel = _labelForStatusCode(statusCode);
 
-    await _reports.doc(id).set({
+    final Map<String, dynamic> payload = {
       'statusCode': statusCode,
       'status': statusLabel,
-
-      // ✅ keep reports schema in sync
-      if (statusCode == 'accepted_by_admin') 'adminDecision': 'accepted',
-      if (statusCode == 'denied_by_admin') 'adminDecision': 'denied',
-      if (statusCode == 'problem_solved') 'citizenSolved': true,
-
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+
+    if (statusCode == 'accepted_by_admin') {
+      payload['adminDecision'] = 'accepted';
+    } else if (statusCode == 'denied_by_admin') {
+      payload['adminDecision'] = 'denied';
+    } else if (statusCode == 'problem_solved') {
+      payload['citizenSolved'] = true;
+      payload['responderSolved'] = true;
+    }
+
+    await _reports.doc(id).set(payload, SetOptions(merge: true));
 
     await addTimeline(
       incidentId: id,
@@ -146,15 +163,17 @@ class IncidentService {
     required String responderPhone,
   }) async {
     await _reports.doc(incidentId).set({
+      // keep both keys for compatibility while you finish cleanup
+      'assignedResponderUid': responderId,
       'assignedResponderId': responderId,
+
       'assignedResponderName': responderName,
       'assignedResponderPhone': responderPhone,
 
       'responderDecision': 'pending',
       'responderDeniedReason': FieldValue.delete(),
-      'assignedResponderStatus': 'on_dispatch',
+      'assignedResponderStatus': 'pending_response',
 
-      // ✅ AUTO UPDATE STATUS ON ASSIGN
       'statusCode': 'responder_dispatched',
       'status': _labelForStatusCode('responder_dispatched'),
 
@@ -168,7 +187,6 @@ class IncidentService {
       byRole: 'admin',
     );
 
-    // Notify responder
     await _db
         .collection('users')
         .doc(responderId)
@@ -178,10 +196,17 @@ class IncidentService {
           'body': 'You have been assigned to a new report.',
           'type': 'assignment',
           'reportId': incidentId,
-          'incidentId': incidentId, // keep old key too
+          'incidentId': incidentId,
           'isRead': false,
           'createdAt': FieldValue.serverTimestamp(),
         });
+
+    await _notifyCitizenIfPossible(
+      incidentId: incidentId,
+      title: 'Responder assigned',
+      body: '$responderName has been assigned to your report.',
+      type: 'assignment',
+    );
   }
 
   Future<void> addTimeline({
@@ -262,16 +287,13 @@ class IncidentService {
     final doc = await _reports.doc(incidentId).get();
     final data = doc.data() ?? <String, dynamic>{};
 
-    // ✅ FIXED: your schema uses reporterId (but keep citizenId support too)
-    final citizenId = (data['citizenId'] ?? data['reporterId'] ?? '')
-        .toString()
-        .trim();
-
-    if (citizenId.isEmpty) return;
+    // your citizen app writes citizenUid
+    final citizenUid = (data['citizenUid'] ?? '').toString().trim();
+    if (citizenUid.isEmpty) return;
 
     await _db
         .collection('users')
-        .doc(citizenId)
+        .doc(citizenUid)
         .collection('notifications')
         .add({
           'title': title,
